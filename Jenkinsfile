@@ -1,7 +1,7 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'GIT_REPO', defaultValue: 'https://github.com/optit-cloud-team/sample-projects.git', description: 'Git Repository URL')
+        string(name: 'GIT_REPO', defaultValue: 'https://github.com/patilswati98/sample-projects.git', description: 'Git Repository URL')
         string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch to build')
     }
     options {
