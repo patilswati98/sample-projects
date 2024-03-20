@@ -1,14 +1,8 @@
 pipeline {
     agent any
-    environment {
-        DOCKERHUB_CREDENTIALS = credentials('optitcloud-dockerhub-credentials')
-    }
     parameters {
-        string(name: 'GIT_REPO', defaultValue: 'https://github.com/srajasimman/sample-projects.git', description: 'Git repo')
-        string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch')
-        string(name: 'DOCKER_REPO', defaultValue: 'docker.io/optitcloud', description: 'Docker Container Registry')
-        string(name: 'DOCKER_IMAGE', defaultValue: 'hello-world', description: 'Docker Image Name')
-        string(name: 'DOCKER_TAG', defaultValue: 'latest', description: 'Docker Image Tag')
+        string(name: 'GIT_REPO', defaultValue: 'https://github.com/optit-cloud-team/sample-projects.git', description: 'Git Repository URL')
+        string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch to build')
     }
     options {
         timeout(time: 1, unit: 'HOURS')
@@ -20,6 +14,10 @@ pipeline {
             projectUrlStr: '${params.GIT_REPO}'
         )
     }
+    def job_name = "${env.JOB_NAME.split('/')[-1]}"
+    def commit_hash = "${env.GIT_COMMIT.substring(0, 7)}"
+    def build_number = "${env.BUILD_NUMBER}"
+    def docker_image = "${job_name}:${commit_hash}-${build_number}"
     stages {
         stage('Checkout') {
             steps {
@@ -31,18 +29,54 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    sh (script: "docker build -t ${params.DOCKER_REPO}/${params.DOCKER_IMAGE}:${params.DOCKER_TAG} .")
+                    
+                    sh 'gradle clean build'
+                    artifact 'build/libs/*.jar'
+                    
                 }
             }
         }
-        stage('Push') {
+        stage('Create Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('', 'optitcloud-dockerhub-credentials') {
-                        sh (script: "docker push ${params.DOCKER_REPO}/${params.DOCKER_IMAGE}:${params.DOCKER_TAG}")
+                    if (!fileExists('Dockerfile')) {
+                        
+                        writeFile(file: 'Dockerfile', text: '''
+                        FROM openjdk:17-jdk-slim
+                        WORKDIR /app
+                        COPY target/*.jar app.jar
+                        ENTRYPOINT ["java", "-jar", "app.jar"]
+                        ''')
+                        
+                    else {
+                        print('Dockerfile already exists')
                     }
                 }
             }
         }
+        stage('Docker Build') {
+            steps {
+                script {
+                    sh 'docker build -t ${docker_image} .'
+                }
+            }
+        }
+        stage('Docker Push') {
+            steps {
+                script {
+                    sh 'docker push ${docker_image}'
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                script {
+                    sh 'kubectl create deployment $job_name --image=${docker_image}'
+                    sh 'kubectl expose deployment $job_name --type=ClusterIP --port=8080'
+                }
+            }
+        }
+        
     }
 }
